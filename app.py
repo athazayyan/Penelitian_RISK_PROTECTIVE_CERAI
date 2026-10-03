@@ -690,11 +690,7 @@ with main_tab1:
                 pred = int(prob >= thr_best)
                 st.divider()
                 st.markdown("## Hasil Prediksi")
-                col1, col2, col3, col4 = st.columns(4)
-                col1.metric("Probabilitas Cerai", f"{prob*100:.2f}%")
-                col2.metric("Threshold Optimal", f"{thr_best*100:.2f}%")
-                col3.metric("Prediksi", "CERAI" if pred == 1 else "MENIKAH")
-                col4.metric("Keputusan", "Di atas threshold" if pred == 1 else "Di bawah threshold")
+          
 
                 fig = go.Figure(go.Indicator(
                     mode="gauge+number",
