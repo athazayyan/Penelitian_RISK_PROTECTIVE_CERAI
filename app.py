@@ -287,37 +287,22 @@ T2_VIF = pd.DataFrame([
 ])
 
 # ==========================================================
-# HASIL TUJUAN 3 (6 HIPOTESIS INTERAKSI)
+# HASIL TUJUAN 3 (4 HIPOTESIS INTERAKSI DPS x MODERATOR)
 # ==========================================================
 T3_HASIL = pd.DataFrame([
-    {"Hipotesis": "Shared x Pendapatan", "Kelompok": "Sosial ekonomi",
-     "beta": -0.243, "ci_low": -0.680, "ci_high": 0.194,
-     "p_Wald": 0.276, "p_LRT": 0.266, "p_FDR": 0.532, "Status": "Tidak Signifikan"},
-    {"Hipotesis": "Konflik x Pendidikan", "Kelompok": "Sosial ekonomi",
-     "beta": -0.087, "ci_low": -0.390, "ci_high": 0.215,
-     "p_Wald": 0.571, "p_LRT": 0.572, "p_FDR": 0.687, "Status": "Tidak Signifikan"},
-    {"Hipotesis": "Konflik x Stress", "Kelompok": "Keuangan",
-     "beta": -0.214, "ci_low": -0.504, "ci_high": 0.075,
-     "p_Wald": 0.147, "p_LRT": 0.136, "p_FDR": 0.408, "Status": "Tidak Signifikan"},
-    {"Hipotesis": "Shared x Stress", "Kelompok": "Keuangan",
-     "beta": 0.341, "ci_low": 0.029, "ci_high": 0.653,
-     "p_Wald": 0.032, "p_LRT": 0.026, "p_FDR": 0.155, "Status": "Signifikan Raw"},
-    {"Hipotesis": "Konflik x Permisif", "Kelompok": "Sikap KDRT",
-     "beta": -0.016, "ci_low": -0.333, "ci_high": 0.302,
-     "p_Wald": 0.923, "p_LRT": 0.923, "p_FDR": 0.923, "Status": "Tidak Signifikan"},
-    {"Hipotesis": "Defensif x Permisif", "Kelompok": "Sikap KDRT",
-     "beta": -0.125, "ci_low": -0.421, "ci_high": 0.170,
-     "p_Wald": 0.406, "p_LRT": 0.405, "p_FDR": 0.607, "Status": "Tidak Signifikan"},
+    {"Hipotesis": "DPS × Pendapatan", "Pertanyaan": "Apakah efek DPS berbeda menurut pendapatan?",
+     "p_raw": 0.780, "p_FDR": 0.942, "Kesimpulan": "Tidak signifikan"},
+    {"Hipotesis": "DPS × Pendidikan", "Pertanyaan": "Apakah efek DPS berbeda menurut pendidikan?",
+     "p_raw": 0.942, "p_FDR": 0.942, "Kesimpulan": "Tidak signifikan"},
+    {"Hipotesis": "DPS × Fin. Stress", "Pertanyaan": "Apakah efek DPS berbeda menurut stres keuangan?",
+     "p_raw": 0.082, "p_FDR": 0.328, "Kesimpulan": "Tidak signifikan"},
+    {"Hipotesis": "DPS × KDRT", "Pertanyaan": "Apakah efek DPS berbeda menurut sikap KDRT?",
+     "p_raw": 0.824, "p_FDR": 0.942, "Kesimpulan": "Tidak signifikan"},
 ])
 
-T3_STABILITAS = pd.DataFrame([
-    {"Hipotesis": "Shared x Pendapatan", "beta_full": -0.243, "beta_cv": -0.239, "sd": 0.105, "proporsi": 0.96, "Status": "Stabil"},
-    {"Hipotesis": "Konflik x Pendidikan", "beta_full": -0.087, "beta_cv": -0.085, "sd": 0.098, "proporsi": 0.80, "Status": "Marginal"},
-    {"Hipotesis": "Konflik x Stress", "beta_full": -0.214, "beta_cv": -0.218, "sd": 0.087, "proporsi": 1.00, "Status": "Stabil"},
-    {"Hipotesis": "Shared x Stress", "beta_full": 0.341, "beta_cv": 0.351, "sd": 0.103, "proporsi": 1.00, "Status": "Stabil"},
-    {"Hipotesis": "Konflik x Permisif", "beta_full": -0.016, "beta_cv": -0.021, "sd": 0.117, "proporsi": 0.54, "Status": "Tidak Stabil"},
-    {"Hipotesis": "Defensif x Permisif", "beta_full": -0.125, "beta_cv": -0.124, "sd": 0.072, "proporsi": 0.96, "Status": "Stabil"},
-])
+def fmt_p(x):
+    """Format p-value dengan koma desimal (3 angka di belakang koma)."""
+    return f"{x:.3f}".replace(".", ",")
 
 # ==========================================================
 # HELPER FUNCTIONS
@@ -1044,232 +1029,106 @@ with main_tab2:
 # ==========================================================
 with main_tab3:
     st.header("Tujuan 3: Analisis Interaksi (Moderasi)")
-    st.caption("6 hipotesis interaksi dengan regresi logistik. Koreksi FDR untuk multiple testing.")
+    st.caption("4 hipotesis interaksi DPS × moderator dengan regresi logistik. Koreksi FDR untuk multiple testing.")
 
-    sub1, sub2, sub3, sub4, sub5, sub6 = st.tabs([
+    sub1, sub2, sub3 = st.tabs([
         "Metodologi",
-        "Uji Asumsi Awal",
-        "6 Hipotesis",
+        "4 Hipotesis",
         "Hasil Interaksi",
-        "Simple Slopes",
-        "Stabilitas CV",
     ])
 
     with sub1:
         st.subheader("Metodologi Tujuan 3")
         st.markdown("""
-        **Tujuan**: menguji apakah hubungan antara faktor risiko/protektif dengan perceraian berbeda menurut tingkat moderator (sosial-ekonomi, keuangan, sikap KDRT).
+        **Tujuan**: menguji apakah hubungan skor DPS dengan perceraian berbeda menurut kondisi
+        (pendapatan, pendidikan, stres keuangan, dan sikap terhadap KDRT).
 
         **Pendekatan**:
-        1. Model regresi logistik dengan interaction term: logit(Y) = beta_0 + beta_1 X1 + beta_2 X2 + beta_3 (X1 x X2).
-        2. X1 adalah prediktor utama (Shared Meaning, Negative Conflict, Defensiveness).
-        3. X2 adalah moderator (Pendapatan, Pendidikan, Financial Stress, KDRT Permisif).
-        4. Koefisien beta_3 adalah koefisien interaksi yang diuji.
-        5. Signifikansi diuji dengan Likelihood Ratio Test (membandingkan model dengan dan tanpa interaksi) dan Wald test.
-        6. Koreksi FDR Benjamini-Hochberg diterapkan karena 6 hipotesis diuji bersamaan.
-        7. Semua prediktor dan moderator distandardisasi untuk menyeragamkan skala.
-
-        **Interpretasi arah koefisien interaksi**:
-        - Koefisien positif: efek X1 menguat saat X2 meningkat.
-        - Koefisien negatif: efek X1 melemah saat X2 meningkat.
+        1. Model regresi logistik dengan suku interaksi:
+           logit(Y) = β0 + β1·DPS + β2·Moderator + β3·(DPS × Moderator).
+        2. Koefisien yang diuji adalah β3 (interaksi). Jika β3 berbeda dari nol, efek DPS terhadap
+           perceraian berubah menurut tingkat moderator.
+        3. **p (raw)** adalah p-value uji koefisien interaksi untuk tiap hipotesis.
+        4. Karena 4 hipotesis diuji bersamaan, diterapkan koreksi **FDR Benjamini-Hochberg**
+           dan hasilnya dilaporkan sebagai **p FDR**.
+        5. Kriteria: signifikan jika p < 0,05.
 
         **Mengapa koreksi FDR**:
-        Menguji 6 hipotesis secara bersamaan meningkatkan risiko false positive. Koreksi FDR mengontrol proporsi false discovery. Tanpa koreksi, satu hasil signifikan dari enam hipotesis bisa jadi kebetulan statistik.
+        - Mengontrol false positive akibat multiple testing.
+        - Tanpa koreksi, 4 uji sekaligus membuat risiko false positive mencapai 18,5%
+          (1 − 0,95⁴).
+        - Setelah FDR, ambang signifikansi disesuaikan secara proporsional.
+
+        **Cara membaca tanda koefisien interaksi (β3)**:
+        arti tanda bergantung pada tanda efek utama DPS. Jika efek utama DPS negatif (protektif),
+        β3 positif berarti efek protektifnya melemah, dan β3 negatif berarti efek protektifnya
+        menguat (dan sebaliknya jika efek utamanya positif).
         """)
 
     with sub2:
-        st.subheader("Uji Asumsi Awal Data")
-        asumsi_t3 = pd.DataFrame([
-            {"No": 1, "Uji": "Missing values", "Hasil": "0 nilai hilang", "Status": "Baik",
-             "Penjelasan": "Data lengkap"},
-            {"No": 2, "Uji": "Distribusi target", "Hasil": "460 menikah vs 43 cerai", "Status": "Tidak seimbang",
-             "Penjelasan": "Imbalance 10.7 banding 1, ditangani dengan class_weight balanced"},
-            {"No": 3, "Uji": "Outlier (IQR)", "Hasil": "0 sampai 9.94 persen per fitur", "Status": "Wajar",
-             "Penjelasan": "Outlier pada skala Likert tidak di-drop karena bisa merepresentasikan kasus valid"},
-            {"No": 4, "Uji": "Korelasi antar fitur", "Hasil": "Semua di bawah 0.7", "Status": "Baik",
-             "Penjelasan": "Tidak ada korelasi tinggi antar prediktor dan moderator"},
-            {"No": 5, "Uji": "Kolinearitas sempurna", "Hasil": "Financial Well-Being vs Financial Stress r = -1.000", "Status": "Perlu penanganan",
-             "Penjelasan": "Financial Well-Being di-drop, hanya Financial Stress yang dipakai"},
-        ])
-        st.dataframe(asumsi_t3, hide_index=True, use_container_width=True)
-
-        st.markdown("""
-        
-        **Mengapa outlier tidak di-drop**:
-        Pada data survei dengan skala Likert, nilai ekstrem dapat merepresentasikan kasus yang valid secara substantif, bukan kesalahan input. Menghapusnya tanpa alasan kuat bisa bias.
-
-        **Setelah handling**:
-        VIF fitur utama maksimal 2.18 (aman). VIF interaksi maksimal 1.31 (aman). EPV = 10.75 (borderline, ideal 10).
-        """)
+        st.subheader("4 Hipotesis Interaksi yang Diuji")
+        hip_df = T3_HASIL[["Hipotesis", "Pertanyaan"]].copy()
+        hip_df.insert(0, "No", range(1, len(hip_df) + 1))
+        st.dataframe(hip_df, hide_index=True, use_container_width=True)
+        st.caption("Pada semua hipotesis, prediktor utama adalah skor DPS.")
 
     with sub3:
-        st.subheader("6 Hipotesis Interaksi yang Diuji")
-        hipotesis_df = pd.DataFrame([
-            {"No": 1, "Kelompok": "Sosial ekonomi", "Interaksi": "Shared Meaning x Pendapatan",
-             "Pertanyaan": "Apakah hubungan Shared Meaning dengan cerai berbeda menurut pendapatan?"},
-            {"No": 2, "Kelompok": "Sosial ekonomi", "Interaksi": "Negative Conflict x Pendidikan",
-             "Pertanyaan": "Apakah hubungan konflik negatif dengan cerai berbeda menurut pendidikan?"},
-            {"No": 3, "Kelompok": "Keuangan", "Interaksi": "Negative Conflict x Financial Stress",
-             "Pertanyaan": "Apakah hubungan konflik negatif dengan cerai berbeda menurut stres keuangan?"},
-            {"No": 4, "Kelompok": "Keuangan", "Interaksi": "Shared Meaning x Financial Stress",
-             "Pertanyaan": "Apakah hubungan shared meaning dengan cerai berbeda menurut stres keuangan?"},
-            {"No": 5, "Kelompok": "Sikap KDRT", "Interaksi": "Negative Conflict x KDRT Permisif",
-             "Pertanyaan": "Apakah hubungan konflik negatif dengan cerai berbeda menurut sikap permisif KDRT?"},
-            {"No": 6, "Kelompok": "Sikap KDRT", "Interaksi": "Defensiveness x KDRT Permisif",
-             "Pertanyaan": "Apakah hubungan defensiveness dengan cerai berbeda menurut sikap permisif KDRT?"},
-        ])
-        st.dataframe(hipotesis_df, hide_index=True, use_container_width=True)
+        st.subheader("Hasil Uji 4 Hipotesis Interaksi")
+        st.caption("Signifikan jika p < 0,05.")
 
-    with sub4:
-        st.subheader("Hasil Uji 6 Hipotesis Interaksi")
+        tampil = T3_HASIL.copy()
+        tampil["p (raw)"] = tampil["p_raw"].map(fmt_p)
+        tampil["p FDR"] = tampil["p_FDR"].map(fmt_p)
         st.dataframe(
-            T3_HASIL.style.format({"beta": "{:+.4f}", "ci_low": "{:+.4f}",
-                                    "ci_high": "{:+.4f}", "p_Wald": "{:.4f}",
-                                    "p_LRT": "{:.4f}", "p_FDR": "{:.4f}"}),
-            use_container_width=True,
+            tampil[["Hipotesis", "Pertanyaan", "p (raw)", "p FDR", "Kesimpulan"]],
+            hide_index=True, use_container_width=True,
         )
 
         st.divider()
-        st.subheader("Forest Plot Koefisien Interaksi")
-
-        plot_df = T3_HASIL.sort_values("beta").copy()
-        colors = plot_df["Status"].map({
-            "Signifikan Raw": "#ef4444", "Tidak Signifikan": "#9ca3af"})
-        fig, ax = plt.subplots(figsize=(11, 5))
-        y_pos = np.arange(len(plot_df))
-        ax.barh(y_pos, plot_df["beta"], color=colors, edgecolor="black", alpha=0.85)
-        ax.errorbar(plot_df["beta"], y_pos,
-                    xerr=[plot_df["beta"] - plot_df["ci_low"],
-                          plot_df["ci_high"] - plot_df["beta"]],
-                    fmt="none", ecolor="black", capsize=4, lw=1.2)
-        ax.axvline(0, color="black", lw=1, ls="--", alpha=0.7)
-        ax.set_yticks(y_pos)
-        ax.set_yticklabels(plot_df["Hipotesis"], fontsize=10)
-        ax.set_xlabel("Koefisien Interaksi (standardized)")
-        ax.set_title("Forest Plot 6 Hipotesis Interaksi")
-        ax.grid(axis="x", alpha=0.3)
-        plt.tight_layout()
-        st.pyplot(fig)
-        plt.close(fig)
-
-        st.divider()
-        st.markdown("### Ringkasan Signifikansi")
         c1, c2, c3 = st.columns(3)
-        c1.metric("Signifikan raw (p < 0.05)", "1 dari 6")
-        c2.metric("Signifikan setelah FDR", "0 dari 6")
-        c3.metric("Signifikan setelah Bonferroni", "0 dari 6")
+        n_hip = len(T3_HASIL)
+        c1.metric("Signifikan raw (p < 0,05)", f"{int((T3_HASIL['p_raw'] < 0.05).sum())} dari {n_hip}")
+        c2.metric("Signifikan setelah FDR", f"{int((T3_HASIL['p_FDR'] < 0.05).sum())} dari {n_hip}")
+        c3.metric("p (raw) terkecil", fmt_p(T3_HASIL["p_raw"].min()))
 
-        st.markdown("""
-        **Narasi tiap hipotesis**:
-        - Shared x Pendapatan: beta = -0.243, p = 0.266. Tidak signifikan. Tidak ada bukti hubungan shared meaning dengan cerai berbeda menurut pendapatan.
-        - Konflik x Pendidikan: beta = -0.087, p = 0.572. Tidak signifikan. Tidak ada bukti hubungan konflik dengan cerai berbeda menurut pendidikan.
-        - Konflik x Financial Stress: beta = -0.214, p = 0.136. Tidak signifikan. Tidak ada bukti interaksi.
-        - Shared x Financial Stress: beta = +0.341, p (raw) = 0.026, p (FDR) = 0.155. Signifikan secara raw, tetapi tidak lolos koreksi FDR.
-        - Konflik x KDRT Permisif: beta = -0.016, p = 0.923. Tidak signifikan.
-        - Defensif x KDRT Permisif: beta = -0.125, p = 0.405. Tidak signifikan.
-        """)
+        st.subheader("Perbandingan p (raw) dan p FDR")
+        plot_df = T3_HASIL.melt(id_vars="Hipotesis", value_vars=["p_raw", "p_FDR"],
+                                var_name="Jenis", value_name="p")
+        plot_df["Jenis"] = plot_df["Jenis"].map({"p_raw": "p (raw)", "p_FDR": "p FDR"})
+        fig = px.bar(plot_df, x="p", y="Hipotesis", color="Jenis", barmode="group",
+                     orientation="h", text=plot_df["p"].map(fmt_p),
+                     color_discrete_map={"p (raw)": "#0F5C59", "p FDR": "#E8743B"},
+                     category_orders={"Hipotesis": list(T3_HASIL["Hipotesis"][::-1])})
+        fig.add_vline(x=0.05, line_dash="dash", line_color="black",
+                      annotation_text="p = 0,05", annotation_position="top")
+        fig.update_layout(height=380, xaxis_range=[0, 1.05], xaxis_title="p-value",
+                          yaxis_title=None, legend_title_text=None)
+        st.plotly_chart(fig, use_container_width=True)
+        st.caption("Semua batang berada di kanan garis p = 0,05, artinya tidak ada interaksi yang signifikan.")
 
-    with sub5:
-        st.subheader("Simple Slopes: Shared Meaning x Financial Stress")
-        st.caption("Analisis eksploratif. Hipotesis ini signifikan raw tetapi tidak lolos koreksi FDR.")
-
-        st.markdown("""
-        **Catatan arah skala IFDFW**:
-
-        Skala asli IFDFW adalah 1 sampai 10, di mana nilai 10 berarti kondisi
-        keuangan sangat baik (tidak stres) dan nilai 1 berarti kondisi
-        keuangan sangat buruk (sangat stres).
-
-        Dalam analisis, variabel Financial Stress dihitung sebagai
-        `11 - rata-rata IFDFW`, sehingga:
-
-        - Financial Stress rendah = kondisi keuangan BAIK (nilai mentah tinggi)
-        - Financial Stress tinggi = kondisi keuangan BURUK (nilai mentah rendah)
-
-        Interpretasi simple slopes di bawah mengikuti arah variabel
-        Financial Stress yang sudah direverse ini.
-        """)
-
-        simple_df = pd.DataFrame([
-            {"Level Financial Stress": "Rendah (mean - 1 SD)",
-             "Kondisi Keuangan": "Baik (nilai mentah IFDFW tinggi)",
-             "Slope Shared Meaning": -1.600,
-             "CI_Low": -2.119, "CI_High": -1.081, "p_value": "< 0.001"},
-            {"Level Financial Stress": "Sedang (mean)",
-             "Kondisi Keuangan": "Sedang (nilai mentah IFDFW sedang)",
-             "Slope Shared Meaning": -1.259,
-             "CI_Low": -1.589, "CI_High": -0.929, "p_value": "< 0.001"},
-            {"Level Financial Stress": "Tinggi (mean + 1 SD)",
-             "Kondisi Keuangan": "Buruk (nilai mentah IFDFW rendah)",
-             "Slope Shared Meaning": -0.919,
-             "CI_Low": -1.296, "CI_High": -0.541, "p_value": "< 0.001"},
-        ])
-        st.dataframe(simple_df, hide_index=True, use_container_width=True)
-
-        fig, ax = plt.subplots(figsize=(9, 5))
-        x = np.arange(3)
-        ax.plot(x, simple_df["Slope Shared Meaning"], "o-", color="#3b82f6", lw=2, markersize=10)
-        ax.fill_between(x, simple_df["CI_Low"], simple_df["CI_High"], alpha=0.2, color="#3b82f6")
-        ax.set_xticks(x)
-        ax.set_xticklabels(["Kondisi\nBaik", "Kondisi\nSedang", "Kondisi\nBuruk"])
-        ax.axhline(0, color="black", ls="--", alpha=0.5)
-        ax.set_ylabel("Slope Shared Meaning")
-        ax.set_xlabel("Kondisi Keuangan (dari variabel Financial Stress)")
-        ax.set_title("Simple Slopes: Shared Meaning vs Financial Stress")
-        ax.grid(alpha=0.3)
-        plt.tight_layout()
-        st.pyplot(fig)
-        plt.close(fig)
-
-        st.markdown("""
-        **Narasi simple slopes**:
-
-        - Pada kondisi keuangan baik (Financial Stress rendah, −1 SD):
-          slope shared meaning = −1.600. Setiap kenaikan 1 SD shared meaning
-          menurunkan log-odds cerai sekitar 1.60. Efek protektifnya paling
-          kuat pada kondisi ini.
-
-        - Pada kondisi keuangan sedang (Financial Stress mean):
-          slope shared meaning = −1.259.
-
-        - Pada kondisi keuangan buruk (Financial Stress tinggi, +1 SD):
-          slope shared meaning = −0.919. Kekuatan protektifnya melemah,
-          namun masih tetap signifikan.
-
-        **Kesimpulan**: shared meaning tetap protektif di semua level
-        kondisi keuangan. Namun kekuatan protektifnya berkurang ketika
-        kondisi keuangan memburuk. Dengan kata lain, kesulitan keuangan
-        melemahkan efektivitas shared meaning sebagai faktor protektif.
-
-        **Catatan penting**: temuan ini bersifat eksploratif karena tidak
-        lolos koreksi FDR (p_FDR = 0.155). Perlu replikasi pada sampel
-        independen sebelum dianggap sebagai temuan konfirmatori.
-        """)
-
-    with sub6:
-        st.subheader("Stabilitas Koefisien Interaksi (Repeated 5-fold x 10 CV)")
-        st.dataframe(
-            T3_STABILITAS.style.format({"beta_full": "{:+.3f}", "beta_cv": "{:+.3f}",
-                                         "sd": "{:.3f}", "proporsi": "{:.2f}"}),
-            use_container_width=True,
-        )
-
-        st.markdown("""
-        **Interpretasi**:
-        - Shared x Stress: proporsi arah sama = 1.00. Sangat stabil, arah positif konsisten di seluruh 50 split data.
-        - Konflik x Stress: proporsi = 1.00. Sangat stabil.
-        - Shared x Pendapatan, Defensif x Permisif: proporsi di atas 0.95. Stabil.
-        - Konflik x Permisif: proporsi = 0.54. Tidak stabil, koefisien fluktuatif dan tanda sering berubah. Jangan diinterpretasi meski angkanya terlihat ada.
-        """)
+        st.divider()
+        st.markdown("### Narasi tiap hipotesis")
+        narasi = {
+            "DPS × Pendapatan": "Tidak ada bukti bahwa efek DPS terhadap perceraian berbeda menurut pendapatan.",
+            "DPS × Pendidikan": "Tidak ada bukti bahwa efek DPS terhadap perceraian berbeda menurut pendidikan.",
+            "DPS × Fin. Stress": ("Tidak signifikan. Ini p (raw) terkecil dari keempat uji dan paling mendekati 0,05, "
+                                  "sehingga dapat disebut kandidat terkuat untuk penelitian lanjutan. "
+                                  "Setelah koreksi FDR, p menjadi 0,328."),
+            "DPS × KDRT": "Tidak ada bukti bahwa efek DPS terhadap perceraian berbeda menurut sikap terhadap KDRT.",
+        }
+        for _, r in T3_HASIL.iterrows():
+            with st.expander(f"{r['Hipotesis']} · p (raw) = {fmt_p(r['p_raw'])} · p FDR = {fmt_p(r['p_FDR'])}"):
+                st.markdown(f"**Pertanyaan**: {r['Pertanyaan']}")
+                st.markdown(narasi.get(r["Hipotesis"], ""))
 
         st.divider()
         st.markdown("""
         **Kesimpulan Tujuan 3**:
 
-        1. Tidak ada interaksi yang signifikan setelah koreksi FDR untuk 6 hipotesis.
-        2. Hanya Shared Meaning x Financial Stress yang signifikan secara raw (beta = +0.341, p = 0.026), namun setelah koreksi FDR menjadi p = 0.155. Ini menunjukkan temuan tersebut kemungkinan besar adalah false positive akibat multiple testing.
-        3. Simple slopes menunjukkan pola yang menarik: efek protektif shared meaning melemah saat stres keuangan meningkat. Namun, temuan ini bersifat eksploratif.
-        4. Sebagian besar moderator (pendapatan, pendidikan, KDRT permisif) tidak memoderasi hubungan antara faktor risiko/protektif dengan perceraian.
-
-        **Keterbatasan utama**: sampel cerai hanya 43 orang. Uji interaksi memerlukan sampel 4 kali lebih besar dibanding uji efek utama untuk mencapai power 0.80. Penelitian ini hanya memiliki power sekitar 30 sampai 40 persen untuk mendeteksi interaksi berukuran sedang.
+        1. Tidak ada interaksi yang signifikan setelah koreksi FDR.
+        2. Tidak ditemukan bukti bahwa efek DPS berbeda menurut pendapatan, pendidikan, stres keuangan,
+           maupun sikap terhadap KDRT. Ini bukan bukti bahwa efeknya sama di semua kondisi: dengan
+           43 kasus cerai, uji interaksi memiliki daya (power) rendah.
+        3. Kandidat terkuat adalah DPS × Financial Stress (p mentah 0,082), namun belum konklusif.
+        4. Temuan bersifat eksploratif dan perlu replikasi dengan sampel lebih besar.
         """)
