@@ -378,59 +378,80 @@ def render_narasi_t2(row):
 # TAB OOF (Tujuan 1)
 # ==========================================================
 def render_oof_tab(oof, thr_best):
-    """Sub-tab sederhana: TN / FN / FP / TP + persen + seluruh data OOF.
-    Hanya memakai nomor idx (tanpa nama / no HP)."""
+    """Sub-tab sederhana: TN / FN / FP / TP + persen untuk threshold 0,5 dan threshold optimal,
+    plus seluruh data OOF. Hanya memakai nomor idx (tanpa nama / no HP)."""
     d = oof.copy()
-    # pakai kolom pred@thr_best dari file OOF (threshold tepat); jika tidak ada, hitung dari thr_best
-    if "pred@thr_best" in d.columns:
-        d["pred"] = d["pred@thr_best"].astype(int)
+    # pakai kolom bawaan file OOF (threshold tepat); jika tidak ada, hitung sendiri
+    if "pred@0.5" in d.columns:
+        d["p05"] = d["pred@0.5"].astype(int)
     else:
-        d["pred"] = (d["prob_OOF"] >= thr_best).astype(int)
+        d["p05"] = (d["prob_OOF"] >= 0.5).astype(int)
+    if "pred@thr_best" in d.columns:
+        d["pbest"] = d["pred@thr_best"].astype(int)
+    else:
+        d["pbest"] = (d["prob_OOF"] >= thr_best).astype(int)
+
     n_pos = int((d.y_true == 1).sum())
     n_neg = int((d.y_true == 0).sum())
-    TP = int(((d.y_true == 1) & (d.pred == 1)).sum())
-    FN = int(((d.y_true == 1) & (d.pred == 0)).sum())
-    FP = int(((d.y_true == 0) & (d.pred == 1)).sum())
-    TN = int(((d.y_true == 0) & (d.pred == 0)).sum())
 
-    st.subheader("Hasil Prediksi OOF")
-    st.caption(f"Threshold = {thr_best:.4f}. Skor di atas atau sama dengan threshold diprediksi 'bercerai'. "
-               "Skor ini adalah peringkat kemiripan profil, bukan peluang cerai yang sebenarnya.")
+    def hitung(pred):
+        TP = int(((d.y_true == 1) & (pred == 1)).sum())
+        FN = int(((d.y_true == 1) & (pred == 0)).sum())
+        FP = int(((d.y_true == 0) & (pred == 1)).sum())
+        TN = int(((d.y_true == 0) & (pred == 0)).sum())
+        return TP, FN, FP, TN
 
-    tabel = pd.DataFrame(
-        [[f"{TP} (TP)", f"{FN} (FN)"], [f"{FP} (FP)", f"{TN} (TN)"]],
-        index=["Sebenarnya bercerai", "Sebenarnya menikah"],
-        columns=["Prediksi bercerai", "Prediksi menikah"],
-    )
-    st.dataframe(tabel, use_container_width=True)
-
-    c1, c2 = st.columns(2)
-    with c1:
+    def blok(judul, pred):
+        TP, FN, FP, TN = hitung(pred)
+        st.markdown(f"#### {judul}")
+        tabel = pd.DataFrame(
+            [[f"{TP} (TP)", f"{FN} (FN)"], [f"{FP} (FP)", f"{TN} (TN)"]],
+            index=["Sebenarnya bercerai", "Sebenarnya menikah"],
+            columns=["Prediksi bercerai", "Prediksi menikah"],
+        )
+        st.dataframe(tabel, use_container_width=True)
         st.markdown(f"""
         **Dari {n_pos} responden yang sebenarnya bercerai:**
         - **TP**: {TP} orang ({TP / n_pos:.1%}) terdeteksi sebagai bercerai.
         - **FN**: {FN} orang ({FN / n_pos:.1%}) tidak terdeteksi (diprediksi menikah).
-        """)
-    with c2:
-        st.markdown(f"""
+
         **Dari {n_neg} responden yang sebenarnya menikah:**
         - **TN**: {TN} orang ({TN / n_neg:.1%}) diprediksi menikah dengan benar.
         - **FP**: {FP} orang ({FP / n_neg:.1%}) diprediksi bercerai (profil mirip responden bercerai).
         """)
 
+    st.subheader("Hasil Prediksi OOF")
+    st.caption("Skor di atas atau sama dengan threshold diprediksi 'bercerai'. Skor ini adalah peringkat "
+               "kemiripan profil, bukan peluang cerai yang sebenarnya.")
+    c1, c2 = st.columns(2)
+    with c1:
+        blok("Threshold 0,5 (bawaan)", d["p05"])
+    with c2:
+        blok(f"Threshold optimal {thr_best:.4f} (F1 maksimum)", d["pbest"])
+
     st.divider()
     st.subheader("Seluruh Data OOF")
-    d["Status sebenarnya"] = d["y_true"].map({0: "Menikah", 1: "Bercerai"})
-    d["Prediksi"] = d["pred"].map({0: "Menikah", 1: "Bercerai"})
-    d["Hasil"] = np.select(
-        [(d.y_true == 1) & (d.pred == 1), (d.y_true == 1) & (d.pred == 0),
-         (d.y_true == 0) & (d.pred == 1), (d.y_true == 0) & (d.pred == 0)],
-        ["TP", "FN", "FP", "TN"], default="?")
-    kolom = [c for c in ["idx", "fold"] if c in d.columns] + \
-            ["Status sebenarnya", "prob_OOF", "Prediksi", "Hasil"]
-    st.dataframe(d[kolom].round({"prob_OOF": 4}), hide_index=True,
-                 use_container_width=True, height=500)
-    st.caption(f"{len(d)} baris. Klik judul kolom untuk mengurutkan (misalnya urutkan 'Hasil' atau 'prob_OOF').")
+
+    def label_hasil(pred):
+        return np.select(
+            [(d.y_true == 1) & (pred == 1), (d.y_true == 1) & (pred == 0),
+             (d.y_true == 0) & (pred == 1), (d.y_true == 0) & (pred == 0)],
+            ["TP", "FN", "FP", "TN"], default="?")
+
+    out = pd.DataFrame()
+    if "idx" in d.columns:
+        out["idx"] = d["idx"]
+    if "fold" in d.columns:
+        out["fold"] = d["fold"]
+    out["Status sebenarnya"] = d["y_true"].map({0: "Menikah", 1: "Bercerai"})
+    out["prob_OOF"] = d["prob_OOF"].round(4)
+    out["Prediksi @0,5"] = d["p05"].map({0: "Menikah", 1: "Bercerai"})
+    out["Hasil @0,5"] = label_hasil(d["p05"])
+    out[f"Prediksi @{thr_best:.4f}"] = d["pbest"].map({0: "Menikah", 1: "Bercerai"})
+    out[f"Hasil @{thr_best:.4f}"] = label_hasil(d["pbest"])
+    st.dataframe(out, hide_index=True, use_container_width=True, height=500)
+    st.caption(f"{len(out)} baris. Klik judul kolom untuk mengurutkan (misalnya urutkan kolom 'Hasil' "
+               "untuk melihat semua FP atau FN).")
 
 
 # ==========================================================
