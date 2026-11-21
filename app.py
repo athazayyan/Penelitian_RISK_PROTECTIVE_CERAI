@@ -1,4 +1,3 @@
-# ==========================================================
 # app_skripsi.py — Dashboard Penelitian Perceraian
 # Tujuan 1: Prediksi, Tujuan 2: Faktor Dominan, Tujuan 3: Interaksi
 # Jalankan: streamlit run app_skripsi.py
@@ -376,6 +375,307 @@ def render_narasi_t2(row):
     return narasi
 
 # ==========================================================
+# TAB OOF (Tujuan 1): Probabilitas & Kasus
+# ==========================================================
+@st.cache_data(show_spinner=False)
+def _bootstrap_ci_oof(y, p, n_boot=1000, seed=42):
+    """CI bootstrap (stratified) untuk ROC-AUC dan PR-AUC dari prediksi OOF."""
+    from sklearn.metrics import roc_auc_score, average_precision_score
+    rng = np.random.default_rng(seed)
+    y = np.asarray(y)
+    p = np.asarray(p)
+    pos = np.where(y == 1)[0]
+    neg = np.where(y == 0)[0]
+    aucs, prs = [], []
+    for _ in range(n_boot):
+        idx = np.concatenate([rng.choice(pos, len(pos)), rng.choice(neg, len(neg))])
+        aucs.append(roc_auc_score(y[idx], p[idx]))
+        prs.append(average_precision_score(y[idx], p[idx]))
+    return (np.percentile(aucs, [2.5, 97.5]), np.percentile(prs, [2.5, 97.5]))
+
+
+def render_oof_tab(oof, thr_best, profil=None):
+    """Sub-tab 'Probabilitas & Kasus': membedah prediksi out-of-fold (OOF).
+    Hanya memakai nomor idx (tanpa nama / no HP) agar data pribadi tidak tampil."""
+    from sklearn.metrics import roc_auc_score, average_precision_score, brier_score_loss
+
+    d = oof.copy()
+    d["label"] = d["y_true"].map({0: "Menikah", 1: "Bercerai"})
+    n_total = len(d)
+    n_pos = int(d["y_true"].sum())
+    n_neg = n_total - n_pos
+
+    st.subheader("Probabilitas Hasil Prediksi Out-of-Fold (OOF)")
+    st.markdown(
+        "Setiap responden diprediksi oleh model yang **tidak pernah melihat datanya** "
+        "(5-fold stratified). Jadi `prob_OOF` adalah prediksi 'jujur' untuk tiap orang."
+    )
+    st.warning(
+        "**Cara membaca skor**: `prob_OOF` adalah **skor peringkat kemiripan profil** dengan "
+        "responden bercerai, **bukan** peluang cerai yang sebenarnya (model RF + SMOTE tidak "
+        "terkalibrasi, lihat bagian Kalibrasi). Data bersifat cross-sectional dan eksploratif, "
+        "tidak dapat digeneralisasi di luar sampel ini."
+    )
+
+    # ------------------------------------------------------------------
+    # 1. Distribusi per kelas
+    # ------------------------------------------------------------------
+    st.markdown("### 1. Sebaran probabilitas: menikah vs bercerai")
+    col_h, col_t = st.columns([3, 2])
+    with col_h:
+        fig = px.histogram(
+            d, x="prob_OOF", color="label", nbins=25, barmode="overlay",
+            histnorm="percent", opacity=0.65,
+            color_discrete_map={"Menikah": "#10b981", "Bercerai": "#ef4444"},
+            labels={"prob_OOF": "Probabilitas OOF", "percent": "% dalam kelas"},
+        )
+        fig.add_vline(x=thr_best, line_dash="dash", line_color="black",
+                      annotation_text=f"threshold {thr_best:.3f}")
+        fig.update_layout(height=380, legend_title_text="Status sebenarnya",
+                          yaxis_title="% responden dalam kelasnya")
+        st.plotly_chart(fig, use_container_width=True)
+    with col_t:
+        ringkas = d.groupby("label")["prob_OOF"].agg(
+            n="size", rata2="mean", median="median",
+            q25=lambda s: s.quantile(0.25), q75=lambda s: s.quantile(0.75),
+            maks="max",
+        ).round(3)
+        st.dataframe(ringkas, use_container_width=True)
+        m0 = d.loc[d.y_true == 0, "prob_OOF"].mean()
+        m1 = d.loc[d.y_true == 1, "prob_OOF"].mean()
+        st.markdown(
+            f"Rata-rata skor kelompok bercerai (**{m1:.3f}**) sekitar **{m1 / m0:.1f} kali** "
+            f"kelompok menikah (**{m0:.3f}**). Kedua sebaran bergeser jelas, tetapi masih "
+            "tumpang tindih pada rentang sekitar 0,2 sampai 0,6."
+        )
+
+    # ------------------------------------------------------------------
+    # 2. Confusion matrix interaktif
+    # ------------------------------------------------------------------
+    st.markdown("### 2. Hasil klasifikasi pada threshold tertentu")
+    thr = st.slider("Threshold (skor di atas atau sama dengan ini diprediksi 'bercerai')",
+                    0.05, 0.95, float(round(thr_best, 3)), 0.005, key="oof_thr")
+    d["pred"] = (d["prob_OOF"] >= thr).astype(int)
+    TP = int(((d.y_true == 1) & (d.pred == 1)).sum())
+    FN = int(((d.y_true == 1) & (d.pred == 0)).sum())
+    FP = int(((d.y_true == 0) & (d.pred == 1)).sum())
+    TN = int(((d.y_true == 0) & (d.pred == 0)).sum())
+    rec = TP / n_pos if n_pos else np.nan
+    spe = TN / n_neg if n_neg else np.nan
+    pre = TP / (TP + FP) if (TP + FP) else np.nan
+    npv = TN / (TN + FN) if (TN + FN) else np.nan
+    acc = (TP + TN) / n_total
+    f1 = 2 * pre * rec / (pre + rec) if (pre + rec) else np.nan
+
+    cm = pd.DataFrame(
+        [[f"{TP} (TP)", f"{FN} (FN)"], [f"{FP} (FP)", f"{TN} (TN)"]],
+        index=["Sebenarnya bercerai", "Sebenarnya menikah"],
+        columns=["Prediksi bercerai", "Prediksi menikah"],
+    )
+    c_cm, c_tx = st.columns([2, 3])
+    with c_cm:
+        st.dataframe(cm, use_container_width=True)
+        st.caption(f"Akurasi {acc:.1%}. Menebak 'semua menikah' sudah benar {n_neg / n_total:.1%}, "
+                   "jadi akurasi tidak dipakai sebagai ukuran utama.")
+    with c_tx:
+        st.markdown(f"""
+        **Dari {n_pos} responden yang sebenarnya bercerai:**
+        - {TP} orang ({rec:.1%}) terdeteksi oleh model (TP).
+        - {FN} orang ({1 - rec:.1%}) tidak terdeteksi (FN).
+
+        **Dari {n_neg} responden yang sebenarnya menikah:**
+        - {TN} orang ({spe:.1%}) dikenali sebagai menikah (TN).
+        - {FP} orang ({1 - spe:.1%}) ditandai mirip profil bercerai (FP).
+
+        **Dari {TP + FP} orang yang ditandai bercerai**, {pre:.1%} benar-benar bercerai (presisi).
+        """)
+    m1c, m2c, m3c, m4c = st.columns(4)
+    m1c.metric("Recall", f"{rec:.1%}")
+    m2c.metric("Presisi", f"{pre:.1%}")
+    m3c.metric("Spesifisitas", f"{spe:.1%}")
+    m4c.metric("F1", f"{f1:.3f}")
+    st.info(
+        "Jumlah FP dan FN **berubah saat threshold digeser**. Karena itu persentase FP "
+        "bukan sifat tetap responden, dan tidak boleh ditulis sebagai 'persentase pernikahan "
+        "yang berisiko cerai'. Tulis sebagai: 'sekian responden menikah memiliki profil yang "
+        "mirip responden bercerai'."
+    )
+
+    # ------------------------------------------------------------------
+    # 3. Desil risiko
+    # ------------------------------------------------------------------
+    st.markdown("### 3. Desil risiko: seberapa terkonsentrasi kasus cerai di skor tertinggi")
+    d["desil"] = pd.qcut(d["prob_OOF"].rank(method="first"), 10, labels=False) + 1
+    dec = d.groupby("desil").agg(
+        n=("y_true", "size"), kasus_cerai=("y_true", "sum"),
+        rata2_skor=("prob_OOF", "mean"),
+    )
+    dec["proporsi_cerai"] = dec["kasus_cerai"] / dec["n"]
+    dec["kumulatif_tertangkap"] = dec["kasus_cerai"][::-1].cumsum()[::-1] / n_pos
+    dec = dec.sort_index(ascending=False)
+    dec.index = [f"Desil {i}" + (" (tertinggi)" if i == 10 else " (terendah)" if i == 1 else "")
+                 for i in dec.index]
+    c_d1, c_d2 = st.columns([3, 2])
+    with c_d1:
+        st.dataframe(
+            dec.style.format({"rata2_skor": "{:.3f}", "proporsi_cerai": "{:.1%}",
+                              "kumulatif_tertangkap": "{:.1%}"}),
+            use_container_width=True,
+        )
+    with c_d2:
+        top = d.nlargest(int(round(n_total * 0.10)), "prob_OOF")
+        low7 = d[d["desil"] <= 7]
+        st.markdown(f"""
+        - **10% skor tertinggi** ({len(top)} orang) memuat **{int(top.y_true.sum())} dari {n_pos}**
+          kasus cerai ({top.y_true.sum() / n_pos:.0%}); proporsi cerai di sana
+          {top.y_true.mean():.0%} vs {n_pos / n_total:.1%} pada seluruh sampel
+          (sekitar {top.y_true.mean() / (n_pos / n_total):.1f} kali).
+        - **7 desil terbawah** ({len(low7)} orang) hanya memuat {int(low7.y_true.sum())} kasus cerai
+          ({low7.y_true.mean():.1%}).
+        """)
+
+    # ------------------------------------------------------------------
+    # 4. Kalibrasi
+    # ------------------------------------------------------------------
+    st.markdown("### 4. Kalibrasi: apakah skor = peluang sebenarnya?")
+    edges = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 1.0]
+    d["bin"] = pd.cut(d["prob_OOF"], edges, include_lowest=True)
+    cal = d.groupby("bin", observed=True).agg(
+        n=("y_true", "size"), cerai=("y_true", "sum"), rata2_skor=("prob_OOF", "mean"))
+    cal["proporsi_cerai_teramati"] = cal["cerai"] / cal["n"]
+    cal.index = [str(i) for i in cal.index]
+    c_k1, c_k2 = st.columns([2, 3])
+    with c_k1:
+        st.dataframe(cal.style.format({"rata2_skor": "{:.3f}",
+                                       "proporsi_cerai_teramati": "{:.1%}"}),
+                     use_container_width=True)
+    with c_k2:
+        figc = go.Figure()
+        figc.add_trace(go.Scatter(x=[0, 1], y=[0, 1], mode="lines",
+                                  line=dict(dash="dash", color="gray"), name="Kalibrasi sempurna"))
+        figc.add_trace(go.Scatter(
+            x=cal["rata2_skor"], y=cal["proporsi_cerai_teramati"], mode="lines+markers",
+            marker=dict(size=np.clip(cal["n"] / 6, 6, 30)), name="Teramati",
+            text=[f"n={n}" for n in cal["n"]]))
+        figc.update_layout(height=340, xaxis_title="Rata-rata skor OOF",
+                           yaxis_title="Proporsi cerai teramati",
+                           xaxis_range=[0, 1], yaxis_range=[0, 1])
+        st.plotly_chart(figc, use_container_width=True)
+    st.caption("Titik jauh dari garis putus-putus berarti skor tidak sama dengan peluang sebenarnya. "
+               "Ukuran titik menunjukkan jumlah responden; bin dengan n kecil sangat tidak stabil.")
+
+    # ------------------------------------------------------------------
+    # 5. Metrik + CI bootstrap + per fold
+    # ------------------------------------------------------------------
+    st.markdown("### 5. Performa keseluruhan dan kestabilan")
+    y_arr, p_arr = d["y_true"].values, d["prob_OOF"].values
+    auc = roc_auc_score(y_arr, p_arr)
+    prauc = average_precision_score(y_arr, p_arr)
+    brier = brier_score_loss(y_arr, p_arr)
+    base = n_pos / n_total
+    auc_ci, pr_ci = _bootstrap_ci_oof(y_arr, p_arr)
+    k1, k2, k3 = st.columns(3)
+    k1.metric("ROC-AUC (OOF)", f"{auc:.3f}", f"95% CI {auc_ci[0]:.3f} - {auc_ci[1]:.3f}", delta_color="off")
+    k2.metric("PR-AUC (OOF)", f"{prauc:.3f}", f"95% CI {pr_ci[0]:.3f} - {pr_ci[1]:.3f}", delta_color="off")
+    k3.metric("Brier score", f"{brier:.4f}", f"baseline PR-AUC = {base:.3f}", delta_color="off")
+    st.caption("CI dari 1000 bootstrap (stratified) pada prediksi OOF. Interval lebar wajar karena "
+               f"kasus cerai hanya {n_pos} orang.")
+
+    if "fold" in d.columns:
+        rows = []
+        for f, g in d.groupby("fold"):
+            rows.append({"Fold": int(f), "n": len(g), "Kasus cerai": int(g.y_true.sum()),
+                         "ROC-AUC": roc_auc_score(g.y_true, g.prob_OOF),
+                         "PR-AUC": average_precision_score(g.y_true, g.prob_OOF)})
+        st.dataframe(pd.DataFrame(rows).style.format({"ROC-AUC": "{:.3f}", "PR-AUC": "{:.3f}"}),
+                     hide_index=True, use_container_width=True)
+        st.caption("Tiap fold hanya berisi 8 sampai 9 kasus cerai, sehingga variasi antar fold wajar.")
+
+    # ------------------------------------------------------------------
+    # 6. Kasus FN dan FP
+    # ------------------------------------------------------------------
+    st.markdown("### 6. Kasus yang dikulik: salah tebak")
+    show_cols = [c for c in ["idx", "fold", "prob_OOF"] if c in d.columns]
+    n_show = st.slider("Jumlah kasus yang ditampilkan", 5, 20, 10, key="oof_nshow")
+    c_fn, c_fp = st.columns(2)
+    with c_fn:
+        st.markdown("**Sebenarnya bercerai, tetapi skor rendah (FN)**")
+        fn_df = d[d.y_true == 1].nsmallest(n_show, "prob_OOF")[show_cols].round(3)
+        st.dataframe(fn_df, hide_index=True, use_container_width=True)
+        st.caption("Periksa baris ini di data mentah: bisa jadi kasus khusus (misalnya sebab "
+                   "perceraian di luar cakupan skala, atau salah label status).")
+    with c_fp:
+        st.markdown("**Sebenarnya menikah, tetapi skor tinggi (FP)**")
+        fp_df = d[d.y_true == 0].nlargest(n_show, "prob_OOF")[show_cols].round(3)
+        st.dataframe(fp_df, hide_index=True, use_container_width=True)
+        st.caption("Boleh disebut 'profil mirip responden bercerai'. Tidak boleh disebut "
+                   "'akan bercerai': tidak ada data tindak lanjut.")
+
+    # ------------------------------------------------------------------
+    # 7. Profil kelompok (opsional)
+    # ------------------------------------------------------------------
+    if profil is not None and len(profil) == len(d):
+        st.markdown("### 7. Profil jawaban per kelompok hasil prediksi")
+        st.caption(f"Pembagian kelompok mengikuti threshold di atas ({thr:.3f}). "
+                   "Nilai = rata-rata skor mentah subskala; grafik = selisih dari rata-rata sampel "
+                   "dalam satuan SD (z).")
+        grp = np.select(
+            [(d.y_true == 0) & (d.pred == 0), (d.y_true == 0) & (d.pred == 1),
+             (d.y_true == 1) & (d.pred == 1), (d.y_true == 1) & (d.pred == 0)],
+            ["TN (menikah, benar)", "FP (menikah, ditandai)",
+             "TP (bercerai, terdeteksi)", "FN (bercerai, lolos)"], default="?")
+        P = profil.copy()
+        P["grup"] = grp
+        urut = ["TN (menikah, benar)", "FP (menikah, ditandai)",
+                "TP (bercerai, terdeteksi)", "FN (bercerai, lolos)"]
+        mean_tbl = P.groupby("grup").mean(numeric_only=True).reindex(urut)
+        mean_tbl.insert(0, "n", P.groupby("grup").size().reindex(urut).fillna(0).astype(int))
+        st.dataframe(mean_tbl.style.format({c: "{:.2f}" for c in mean_tbl.columns if c != "n"}),
+                     use_container_width=True)
+
+        z = (mean_tbl.drop(columns="n") - profil.mean()) / profil.std(ddof=0)
+        zl = z.reset_index().melt(id_vars="grup", var_name="Subskala", value_name="z")
+        figp = px.bar(zl.dropna(), x="Subskala", y="z", color="grup", barmode="group",
+                      category_orders={"grup": urut},
+                      color_discrete_map={urut[0]: "#10b981", urut[1]: "#f59e0b",
+                                          urut[2]: "#ef4444", urut[3]: "#6b7280"},
+                      labels={"z": "Selisih dari rata-rata sampel (SD)", "grup": "Kelompok"})
+        figp.add_hline(y=0, line_color="black")
+        figp.update_layout(height=420)
+        st.plotly_chart(figp, use_container_width=True)
+        st.caption("Jika kelompok FP berada di antara TN dan TP, itu mendukung tafsir 'profil mirip "
+                   "bercerai'. Jumlah FP kecil, jadi bacalah sebagai gambaran deskriptif, bukan uji.")
+
+    # ------------------------------------------------------------------
+    # 8. Validitas ilmiah
+    # ------------------------------------------------------------------
+    with st.expander("Apakah evaluasi OOF seperti ini sah secara ilmiah? (klik untuk detail)"):
+        st.markdown("""
+        **Sah**: prediksi OOF adalah cara standar (cross-validated predictions). Setiap responden
+        diprediksi oleh model yang tidak dilatih dengan datanya.
+
+        **Syarat dan catatan**:
+        1. **SMOTE, scaling, dan seleksi fitur harus berada di dalam training fold saja**
+           (Blagus & Lusa, 2015, *BMC Bioinformatics*). Jika SMOTE dijalankan sebelum split, hasil
+           terlalu optimistis. Disarankan memakai `imblearn.pipeline.Pipeline`.
+        2. **Threshold** (F1-maksimum) dan **pemilihan model terbaik dari 20 skenario** ditentukan
+           pada OOF yang sama, sehingga estimasi sedikit optimistis. Idealnya nested CV atau
+           data uji terpisah.
+        3. **Hanya 43 kasus cerai**: estimasi tidak stabil; lihat CI bootstrap dan variasi antar fold.
+        4. **Skor tidak terkalibrasi**: gunakan sebagai peringkat, bukan peluang.
+        5. **Cross-sectional dan retrospektif**: responden bercerai menjawab setelah bercerai,
+           sehingga arah sebab-akibat tidak dapat disimpulkan.
+        6. **Tidak ada validasi eksternal**: hasil tidak dapat digeneralisasi di luar sampel ini.
+
+        **Penelitian serupa**: Moumen et al. (2024, *Scientific Reports*) memakai Divorce Predictors
+        Scale dengan ANN, Naive Bayes, dan RF; dataset UCI Divorce Predictors (Yontem & Ilhan)
+        banyak dilaporkan berakurasi mendekati 100% karena datanya seimbang dan mudah, sehingga
+        tidak setara dengan data timpang ini; Arpino, Le Moglie & Mencarini (*Demography*)
+        memakai Random Survival Forests pada data panel SOEP Jerman.
+        """)
+
+
+# ==========================================================
 # SIDEBAR
 # ==========================================================
 with st.sidebar:
@@ -478,12 +778,13 @@ with main_tab1:
     c6.metric("Threshold Optimal", f"{thr_best:.4f}")
     st.divider()
 
-    sub1, sub2, sub3, sub4, sub5 = st.tabs([
+    sub1, sub2, sub3, sub4, sub5, sub6 = st.tabs([
         "Metodologi",
         "Data & Distribusi",
         "Fold & SMOTE",
         "Hasil Evaluasi",
         "Prediksi Manual",
+        "Probabilitas & Kasus (OOF)",
     ])
 
     with sub1:
@@ -717,6 +1018,28 @@ with main_tab1:
                     st.warning("Kategori Risiko: Tinggi")
                 else:
                     st.error("Kategori Risiko: Sangat Tinggi")
+
+    with sub6:
+        # profil subskala (opsional) untuk perbandingan TN / FP / TP / FN
+        try:
+            _dps = raw[dps_cols].apply(pd.to_numeric, errors="coerce")
+            _fs = raw[fs_cols].apply(pd.to_numeric, errors="coerce")
+            _kd = raw[kdrt_cols].apply(pd.to_numeric, errors="coerce")
+            _psi_fav = [i - 1 for i in KDRT_GROUPS["Psikologis - Favorable"]]
+            profil_oof = pd.DataFrame({
+                "Shared Meaning (DPS 1-20)": _dps.iloc[:, 0:20].mean(axis=1),
+                "Love Maps (DPS 21-30)": _dps.iloc[:, 20:30].mean(axis=1),
+                "Neg Conflict (DPS 31-41)": _dps.iloc[:, 30:41].mean(axis=1),
+                "Stonewalling (DPS 42-47)": _dps.iloc[:, 41:47].mean(axis=1),
+                "Defensiveness (DPS 48-54)": _dps.iloc[:, 47:54].mean(axis=1),
+                "Kondisi keuangan (IFDFW mentah, tinggi = baik)": _fs.mean(axis=1),
+                "KDRT Psikologis Favorable": _kd.iloc[:, _psi_fav].mean(axis=1),
+            })
+            if profil_oof.isna().any().any():
+                profil_oof = None
+        except Exception:
+            profil_oof = None
+        render_oof_tab(oof, thr_best, profil_oof)
 
 
 # ==========================================================
@@ -1190,10 +1513,5 @@ with main_tab3:
 
         **Keterbatasan utama**: sampel cerai hanya 43 orang. Uji interaksi memerlukan sampel 4 kali lebih besar dibanding uji efek utama untuk mencapai power 0.80. Penelitian ini hanya memiliki power sekitar 30 sampai 40 persen untuk mendeteksi interaksi berukuran sedang.
         """)
-
-
-# ==========================================================
-# FOOTER
-# ==========================================================
 st.divider()
 st.caption("Dashboard Penelitian. Hasil bersifat indikatif untuk keperluan penelitian akademik.")
